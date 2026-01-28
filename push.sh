@@ -1,17 +1,20 @@
 #!/bin/bash
 
-# Запуск ssh-agent і завантаження ключа
+# 🔹 Піднімаємо ssh-agent і додаємо ключ
 eval "$(ssh-agent -s)"
 ssh-add ~/.ssh/id_ed25519
 
-# Додаємо всі зміни (файли, що не в .gitignore)
+# 🔹 Додаємо всі зміни (файли, що не в .gitignore)
 git add .
 
-# Комітимо з повідомленням "Update project" (якщо є зміни)
-git commit -m "Update project" 2>/dev/null
+# 🔹 Запит коментаря до коміту
+read -p "Enter commit message: " msg
+git commit -m "$msg" 2>/dev/null
 
-# Синхронізація з GitHub (pull --rebase)
+# 🔹 Синхронізація з GitHub
 git pull origin main --rebase
 
-# Пушимо на GitHub
+# 🔹 Пушимо на GitHub
 git push -u origin main
+
+echo "✅ Push complete!"
