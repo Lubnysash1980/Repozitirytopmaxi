@@ -14,9 +14,9 @@ class Config:
     CATEGORY = "spot"
     QTY = "0.001"
     LOOP = 2
-    WINDOW = 20
-    BUY_THRESHOLD = 1.001
-    SELL_THRESHOLD = 0.999
+    WINDOW = 8
+    BUY_THRESHOLD = 1.00025
+    SELL_THRESHOLD = 0.99975
 
 
 class CybraMarket:
