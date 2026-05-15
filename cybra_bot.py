@@ -57,6 +57,23 @@ class CybraStrategy:
         return "Hold"
 
 
+class DuplicateGuard:
+    def __init__(self, cooldown=30):
+        self.cooldown = cooldown
+        self.last_trade_ts = 0
+        self.last_side = None
+
+    def allow(self, side):
+        now = int(time.time())
+        if self.last_side == side and now - self.last_trade_ts < self.cooldown:
+            print("[DUPLICATE BLOCKED]", side, "wait", self.cooldown - (now - self.last_trade_ts), "sec")
+            return False
+
+        self.last_trade_ts = now
+        self.last_side = side
+        return True
+
+
 class CybraExchange:
     def __init__(self, api_key, secret):
         self.api_key = api_key
@@ -130,6 +147,7 @@ class Cybra:
         self.market = CybraMarket()
         self.strategy = CybraStrategy()
         self.exchange = CybraExchange(api, sec)
+        self.guard = DuplicateGuard(cooldown=30)
 
     def run(self):
         print("\n[CYBRA ACTIVE]\n")
@@ -147,7 +165,8 @@ class Cybra:
             print("[PRICE]", p, "[SIGNAL]", sig)
 
             if sig in ["Buy", "Sell"]:
-                self.exchange.order(sig)
+                if self.guard.allow(sig):
+                    self.exchange.order(sig)
 
             time.sleep(Config.LOOP)
 
