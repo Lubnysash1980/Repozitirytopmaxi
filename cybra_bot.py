@@ -1,143 +1,164 @@
 import time
+import traceback
 import requests
 import hmac
 import hashlib
 
-print("====================================")
-print(" CYBRA MOMENTUM BOT")
-print("====================================")
+# =========================
+# CYBRA CLASSES
+# =========================
 
-API_KEY = input("BYBIT API KEY: ").strip()
-SECRET = input("BYBIT SECRET KEY: ").strip()
+class Config:
+    BASE = "https://api.bybit.com"
+    SYMBOL = "BTCUSDT"
+    CATEGORY = "spot"
+    QTY = "0.001"
+    LOOP = 2
+    WINDOW = 20
+    BUY_THRESHOLD = 1.001
+    SELL_THRESHOLD = 0.999
 
-BASE = "https://api.bybit.com"
 
-# -------------------------
-# PRICE
-# -------------------------
+class CybraMarket:
+    def price(self):
+        try:
+            r = requests.get(
+                Config.BASE + "/v5/market/tickers",
+                params={
+                    "category": Config.CATEGORY,
+                    "symbol": Config.SYMBOL
+                },
+                timeout=3
+            )
+            return float(r.json()["result"]["list"][0]["lastPrice"])
+        except Exception as e:
+            print("[MARKET ERROR]", e)
+            return None
 
-def price():
 
-    try:
+class CybraStrategy:
+    def __init__(self):
+        self.buf = []
 
-        r = requests.get(
-            BASE + "/v5/market/tickers",
-            params={
-                "category": "spot",
-                "symbol": "BTCUSDT"
-            },
-            timeout=3
-        )
+    def signal(self, price):
+        self.buf.append(price)
 
-        return float(
-            r.json()["result"]["list"][0]["lastPrice"]
-        )
+        if len(self.buf) > Config.WINDOW:
+            self.buf.pop(0)
 
-    except:
+        avg = sum(self.buf) / len(self.buf)
 
-        return None
+        if price > avg * Config.BUY_THRESHOLD:
+            return "Buy"
 
-# -------------------------
-# SIGNAL
-# -------------------------
+        if price < avg * Config.SELL_THRESHOLD:
+            return "Sell"
 
-buf = []
+        return "Hold"
 
-def signal(p):
 
-    buf.append(p)
+class CybraExchange:
+    def __init__(self, api_key, secret):
+        self.api_key = api_key
+        self.secret = secret
 
-    if len(buf) > 20:
-        buf.pop(0)
+    def sign(self, payload):
+        q = "&".join([f"{k}={v}" for k, v in sorted(payload.items())])
+        return hmac.new(
+            self.secret.encode(),
+            q.encode(),
+            hashlib.sha256
+        ).hexdigest()
 
-    avg = sum(buf) / len(buf)
+    def order(self, side):
+        ts = str(int(time.time() * 1000))
 
-    if p > avg * 1.001:
-        return "Buy"
+        payload = {
+            "category": Config.CATEGORY,
+            "symbol": Config.SYMBOL,
+            "side": side,
+            "orderType": "Market",
+            "qty": Config.QTY,
+            "timestamp": ts
+        }
 
-    if p < avg * 0.999:
-        return "Sell"
+        headers = {
+            "X-BAPI-API-KEY": self.api_key,
+            "X-BAPI-SIGN": self.sign(payload),
+            "X-BAPI-TIMESTAMP": ts
+        }
 
-    return "Hold"
+        try:
+            r = requests.post(
+                Config.BASE + "/v5/order/create",
+                data=payload,
+                headers=headers,
+                timeout=5
+            )
+            print("[ORDER]", r.json())
+        except Exception as e:
+            print("[ORDER ERROR]", e)
 
-# -------------------------
-# SIGN
-# -------------------------
 
-def sign(payload):
+class AutoHeal:
+    def __init__(self):
+        self.crashes = 0
 
-    q = "&".join(
-        [f"{k}={v}" for k,v in sorted(payload.items())]
-    )
+    def protect(self, fn):
+        while True:
+            try:
+                fn()
+            except KeyboardInterrupt:
+                print("\n[CYBRA STOPPED]")
+                break
+            except Exception:
+                self.crashes += 1
+                print("[AUTOHEAL] crash:", self.crashes)
+                traceback.print_exc()
+                time.sleep(3)
 
-    return hmac.new(
-        SECRET.encode(),
-        q.encode(),
-        hashlib.sha256
-    ).hexdigest()
 
-# -------------------------
-# ORDER
-# -------------------------
+class Cybra:
+    def __init__(self):
+        print("====================================")
+        print(" CYBRA CLASS ENGINE + AUTOHEAL")
+        print("====================================")
 
-def order(side):
+        api = input("BYBIT API KEY: ").strip()
+        sec = input("BYBIT SECRET KEY: ").strip()
 
-    ts = str(int(time.time() * 1000))
+        self.market = CybraMarket()
+        self.strategy = CybraStrategy()
+        self.exchange = CybraExchange(api, sec)
 
-    payload = {
-        "category": "spot",
-        "symbol": "BTCUSDT",
-        "side": side,
-        "orderType": "Market",
-        "qty": "0.001",
-        "timestamp": ts
-    }
+    def run(self):
+        print("\n[CYBRA ACTIVE]\n")
 
-    headers = {
-        "X-BAPI-API-KEY": API_KEY,
-        "X-BAPI-SIGN": sign(payload),
-        "X-BAPI-TIMESTAMP": ts
-    }
+        while True:
+            p = self.market.price()
 
-    try:
+            if not p:
+                print("[WAIT PRICE]")
+                time.sleep(Config.LOOP)
+                continue
 
-        r = requests.post(
-            BASE + "/v5/order/create",
-            data=payload,
-            headers=headers,
-            timeout=5
-        )
+            sig = self.strategy.signal(p)
 
-        print("[ORDER]", r.json())
+            print("[PRICE]", p, "[SIGNAL]", sig)
 
-    except Exception as e:
+            if sig in ["Buy", "Sell"]:
+                self.exchange.order(sig)
 
-        print("[ORDER ERROR]", e)
+            time.sleep(Config.LOOP)
 
-# -------------------------
-# LOOP
-# -------------------------
 
-print("\n[CYBRA ACTIVE]\n")
+# =========================
+# IMPORT CYBRA ENTRY
+# =========================
 
-while True:
+def run():
+    AutoHeal().protect(lambda: Cybra().run())
 
-    p = price()
 
-    if not p:
-
-        print("[WAIT PRICE]")
-
-        time.sleep(2)
-
-        continue
-
-    sig = signal(p)
-
-    print("[PRICE]", p, "[SIGNAL]", sig)
-
-    if sig in ["Buy", "Sell"]:
-
-        order(sig)
-
-    time.sleep(2)
+if __name__ == "__main__":
+    run()
